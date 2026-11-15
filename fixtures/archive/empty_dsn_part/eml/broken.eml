@@ -1,0 +1,7 @@
+Content-Type: multipart/report; report-type=delivery-status; boundary=e1
+
+--e1
+Content-Type: message/delivery-status
+
+--e1--
+

@@ -15,6 +15,7 @@ recorded evidence.
 """
 
 from .addr import AddressError, canonical_recipient
+from .archive import ArchiveError, convert_archive
 from .engine import ImportOutcome, Ledger
 from .errors import (
     CorrectionError,
@@ -38,4 +39,6 @@ __all__ = [
     "canonical_recipient",
     "candidate_fingerprint",
     "reference",
+    "ArchiveError",
+    "convert_archive",
 ]

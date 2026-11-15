@@ -1,0 +1,9 @@
+Content-Type: multipart/report; report-type=delivery-status; boundary=t1
+
+--t1
+Content-Type: message/delivery-status
+Content-Transfer-Encoding: base64
+
+!!!!this-is-not-valid-base64!!!!
+--t1--
+

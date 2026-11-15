@@ -28,6 +28,10 @@ echo "== incremental engine vs brute-force reference (step by step) =="
 $PY -I tests/test_reference_crosscheck.py
 
 echo
+echo "== offline .eml archive import (acceptance) =="
+$PY -I tests/test_archive.py
+
+echo
 echo "== main tracked drill =="
 $PY -I tests/drill.py > run/drill.txt
 tail -n 25 run/drill.txt

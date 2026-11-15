@@ -39,6 +39,10 @@ python3 -m receipt_ledger.cli import-dsn          ledger.sqlite dsn.jsonl
 python3 -m receipt_ledger.cli import-corrections  ledger.sqlite corrections.jsonl
 python3 -m receipt_ledger.cli import-resolutions  ledger.sqlite resolutions.jsonl
 
+# offline archive import: raw gateway .eml exports -> dsn.jsonl (see §14)
+python3 -m receipt_ledger.cli convert-archive eml_in/ archive_out/ --gateway gw-main
+python3 -m receipt_ledger.cli import-dsn ledger.sqlite archive_out/dsn.jsonl
+
 python3 -m receipt_ledger.cli status      ledger.sqlite --delivery D-100 --recipient Alice@example.com
 python3 -m receipt_ledger.cli attempt-status ledger.sqlite --delivery D-100 --attempt att-2 --recipient Alice@example.com
 python3 -m receipt_ledger.cli timeline    ledger.sqlite --recipient Alice@example.com
@@ -363,19 +367,25 @@ receipt_ledger/
   schema.py      SQLite schema: facts vs derivations
   engine.py      imports, incremental derivation, status, queries
   reference.py   independent brute-force oracle (no engine imports)
+  dsnmime.py     offline .eml -> DSN parsing (pure MIME/DSN, no I/O)
+  archive.py     batch directory conversion + atomic publish + manifest
   cli.py         command line interface
 tests/
   test_inputs.py                  format/identity/atomicity
   test_status.py                  matching, terminals, retries, chains, decisions
   test_reference_crosscheck.py    step-by-step engine vs oracle (incl. 40 random runs)
   test_reference_independence.py  guard: oracle must not use engine code
+  test_archive.py                 archive-import acceptance (hand-computed expectations)
+  archive_samples.py              real MIME byte samples used by the acceptance tests
   drill.py                        the main tracked drill
   bulk.py                         100k-recipient scenario + query plans
 scripts/
   verify_all.sh   run everything
   drill_cli.sh    the drill through the CLI on a real SQLite file (fail-fast)
   make_fixtures.py regenerate fixtures/
+  make_archive_fixtures.py regenerate fixtures/archive/**.eml
 fixtures/         reusable JSONL materials per scenario
+fixtures/archive/ real .eml acceptance samples per case
 ```
 
 ---
@@ -393,3 +403,94 @@ fixtures/         reusable JSONL materials per scenario
 8. Corrected action/time only; recipient/queue/envelope must be restated.
 9. Conflicted / cyclic / pending / invalid chains contribute nothing.
 10. Fingerprints are mandatory for human decisions and are never repaired.
+
+---
+
+## 14. Offline archive import (.eml → DSN JSONL)
+
+The bounce-handling team receives raw `.eml` exports from the gateway, while
+the ledger only consumes already-split DSN items.  `convert-archive` bridges
+that gap **offline**: it never connects to a mailbox, never sends mail and
+never touches ledger state.  Ledger state is entirely determined by a
+subsequent, independent `import-dsn` of the produced file.
+
+```bash
+python3 -m receipt_ledger.cli convert-archive eml_in/ archive_out/ --gateway gw-main
+python3 -m receipt_ledger.cli import-dsn ledger.sqlite archive_out/dsn.jsonl
+```
+
+`archive_out/` must be a **new** path.  The whole batch is parsed and
+validated first and written inside a controlled temporary directory next to
+the target; a single atomic rename publishes it.  If the target already
+exists or any read/write fails, the command fails and leaves nothing behind —
+the target never appears with a half batch.  Input files are only read.
+
+### What is accepted as a receipt carrier
+
+* top-level `Content-Type: multipart/report` with
+  `report-type=delivery-status`, and
+* **exactly one** `message/delivery-status` part among its direct parts.
+
+Plain bodies, attachments and embedded `message/rfc822` content are never
+treated as receipt data, and nothing is guessed from the Subject, the body
+or attachment names.  Report-level structural or decoding damage —
+`report_type_mismatch`, `malformed_headers`, `mime_boundary` (incl. an
+unclosed boundary), `transfer_encoding`, `unsupported_charset`,
+`charset_decode`, `dsn_part_missing`, `dsn_part_duplicate`, `dsn_structure` —
+means the whole message yields **no** canonical receipts and gets one
+quarantine entry instead.
+
+### Field rules (RFC 3464, deliberately strict)
+
+* Field names are case-insensitive.  Unfolding removes the line break plus
+  the continuation's leading whitespace and joins directly; a line that does
+  not start with whitespace always starts a new field, so adjacent fields are
+  never glued together.
+* The recipient comes from `Final-Recipient`, else `Original-Recipient`
+  (documented precedence).  The address type must be `rfc822` and the address
+  must satisfy §3; the emitted value is the ledger-canonical form.
+* `Action` must agree with the `Status` class: `delivered`/2.x.x,
+  `failed`/5.x.x, `delayed`/4.x.x.  `relayed`/`expanded`, unknown actions,
+  malformed statuses and contradictions are quarantined, not mapped.
+* `occurred_at` is the block's own `Last-Attempt-Date` (RFC 2822) converted
+  to RFC 3339 UTC.  Message-level fields (`Reporting-MTA`,
+  `Original-Envelope-ID`, `Arrival-Date`, …) are report-wide **context**:
+  they are recorded in the manifest, never copied into per-recipient records.
+* `queue_id` / `envelope_id` come only from the per-recipient extension
+  fields `X-Queue-ID` / `X-Envelope-ID`.  The ledger requires at least one
+  matching condition, so a block with neither is quarantined rather than
+  widened by a guess.
+* A recognized field repeated with conflicting values quarantines the block
+  (`conflicting_fields`); no value is ever picked silently.
+
+When the structure is intact, a bad recipient block quarantines only that
+block (categories: `malformed_field`, `conflicting_fields`, `missing_field`,
+`invalid_field_value`, `unsupported_address_type`, `unsupported_address`,
+`unsupported_action`, `invalid_status`, `action_status_mismatch`,
+`invalid_date`, `missing_condition`); the remaining blocks still convert, in
+their original order.  Quarantine entries carry only the diagnosable facts —
+relative file path, file SHA-256, message index, block index, category,
+detail — never the body or other recipients' addresses.
+
+### Identity and provenance
+
+* `report_id` = `"rpt-" + sha256(raw message bytes)` (content-derived:
+  changed content can never impersonate an earlier report);
+  `item_id` = `"item-<n>"` for the n-th recipient block; `gateway_id` is the
+  operator-supplied `--gateway` value, never parsed from the message.
+* `dsn.jsonl` contains only ledger-known fields, so it imports directly.
+* `quarantine.jsonl` lists every block/message that could not be converted,
+  with its category.
+* `manifest.jsonl` keeps the provenance the ledger must not see: a `run`
+  entry (tallies + output digests), one `message` entry per input file
+  (status, report-level context, per-block outcomes, digest of the message's
+  parse result) and one `record` entry per emitted record mapping it to its
+  source (relative path, file SHA-256, message index, block index, parse
+  digest).  Identical content in two files yields two distinct provenance
+  chains; files are processed in sorted relative-path order, so directory
+  enumeration order never changes record content, block order or where
+  provenance points.
+
+Acceptance samples with real MIME bytes live in `fixtures/archive/`
+(regenerate with `python3 scripts/make_archive_fixtures.py`); the
+hand-computed expectations are in `tests/test_archive.py`.

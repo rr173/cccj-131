@@ -1,0 +1,9 @@
+From: alice@example.com
+To: bob@example.net
+Subject: lunch?
+Content-Type: text/plain; charset=us-ascii
+
+Final-Recipient: rfc822; bob@example.net
+Action: delivered
+Status: 2.0.0
+

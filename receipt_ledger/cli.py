@@ -26,6 +26,7 @@ import argparse
 import json
 import sys
 
+from .archive import ArchiveError, convert_archive
 from .engine import Ledger
 from .errors import LedgerError
 
@@ -51,6 +52,18 @@ def build_parser():
 
     p = sub.add_parser("init", help="create a new ledger database")
     p.add_argument("db")
+
+    p = sub.add_parser(
+        "convert-archive",
+        help="convert a directory of raw .eml bounce exports into canonical "
+             "DSN JSONL plus a quarantine list and a provenance manifest, "
+             "written to a NEW directory (offline; touches no ledger)")
+    p.add_argument("input_dir", help="directory of exported .eml files")
+    p.add_argument("output_dir", help="new output directory (must not exist)")
+    p.add_argument("--gateway", required=True,
+                   help="gateway_id stamped on every produced record; the "
+                        "operator-declared source of the export, never "
+                        "parsed from the messages")
 
     for name, kind in (("import-outbound", "outbound"),
                        ("import-dsn", "dsn"),
@@ -116,11 +129,18 @@ def main(argv=None):
             ledger.close()
             _dump({"created": args.db})
             return 0
+        if args.command == "convert-archive":
+            _dump(convert_archive(args.input_dir, args.output_dir,
+                                  gateway_id=args.gateway))
+            return 0
         ledger = _open(args.db)
         try:
             return _dispatch(ledger, args)
         finally:
             ledger.close()
+    except ArchiveError as exc:
+        _dump(exc.to_dict())
+        return 2
     except LedgerError as exc:
         _dump(exc.to_dict())
         return 2

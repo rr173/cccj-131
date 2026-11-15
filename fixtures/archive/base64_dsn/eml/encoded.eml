@@ -1,0 +1,9 @@
+Content-Type: multipart/report; report-type=delivery-status; boundary=b1
+
+--b1
+Content-Type: message/delivery-status
+Content-Transfer-Encoding: base64
+
+UmVwb3J0aW5nLU1UQTogZG5zOyBndzMuZXhhbXBsZS5jb20NCg0KRmluYWwtUmVjaXBpZW50OiByZmM4MjI7IGphY2tAZXhhbXBsZS5jb20NCkFjdGlvbjogZmFpbGVkDQpTdGF0dXM6IDUuNC40DQpMYXN0LUF0dGVtcHQtRGF0ZTogRnJpLCAwNiBGZWIgMjAyNiAxMzowMDowMCArMDAwMA0KWC1RdWV1ZS1JRDogUS0zMA0K
+--b1--
+

@@ -1,0 +1,12 @@
+Content-Type: multipart/report; report-type=delivery-status; boundary=d1
+
+--d1
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; gw1.example.com
+--d1
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; gw1.example.com
+--d1--
+

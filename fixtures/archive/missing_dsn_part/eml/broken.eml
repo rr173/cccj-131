@@ -1,0 +1,14 @@
+Content-Type: multipart/report; report-type=delivery-status; boundary=n1
+
+--n1
+Content-Type: text/plain
+
+your message could not be delivered
+--n1
+Content-Type: message/rfc822
+
+Subject: original
+
+body
+--n1--
+

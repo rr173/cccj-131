@@ -1,0 +1,8 @@
+Content-Type: multipart/report; report-type=delivery-status; boundary=c1
+
+--c1
+Content-Type: message/delivery-status; charset=x-weird-charset
+
+Reporting-MTA: dns; gw1.example.com
+--c1--
+

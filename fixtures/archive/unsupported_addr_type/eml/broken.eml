@@ -1,0 +1,20 @@
+Content-Type: multipart/report; report-type=delivery-status; boundary=a1
+
+--a1
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; gw1.example.com
+
+Final-Recipient: rfc822; iris@example.com
+Action: delivered
+Status: 2.0.0
+Last-Attempt-Date: Thu, 05 Feb 2026 12:00:00 +0000
+X-Queue-ID: Q-20
+
+Final-Recipient: x400; /C=US/O=ORG/PN=JANE
+Action: failed
+Status: 5.1.1
+Last-Attempt-Date: Thu, 05 Feb 2026 12:01:00 +0000
+X-Queue-ID: Q-21
+--a1--
+
