@@ -1,0 +1,2 @@
+{"action": "delivered", "envelope_id": "E1", "gateway_id": "gwA", "item_id": "I1", "occurred_at": "2026-01-01T01:00:00Z", "queue_id": "Q1", "recipient": "x@example.com", "report_id": "R1"}
+{"action": "delivered", "envelope_id": "E1", "gateway_id": "gwB", "item_id": "I1", "occurred_at": "2026-01-01T01:00:00Z", "queue_id": "Q1", "recipient": "x@example.com", "report_id": "R1"}

@@ -1,0 +1,2 @@
+{"action": "failed", "gateway_id": "g", "item_id": "CI7a", "occurred_at": "2026-01-01T02:00:00Z", "report_id": "C7a", "target_item_id": "I7", "target_report_id": "R7"}
+{"action": "delayed", "gateway_id": "g", "item_id": "CI7b", "occurred_at": "2026-01-01T03:00:00Z", "report_id": "C7b", "target_item_id": "I7", "target_report_id": "R7"}

@@ -1,0 +1,3 @@
+{"attempt_id": "a1", "delivery_id": "D1", "gateway_id": "g", "queue_id": "Q1", "recipient": "u@example.com", "sent_at": "2026-01-01T00:00:00Z"}
+{"attempt_id": "b1", "delivery_id": "D2", "gateway_id": "g", "queue_id": "Q2", "recipient": "u@example.com", "sent_at": "2026-01-01T00:00:00Z"}
+{"attempt_id": "c1", "delivery_id": "D3", "gateway_id": "g", "queue_id": "Q3", "recipient": "u@example.com", "sent_at": "2026-01-01T00:00:00Z"}

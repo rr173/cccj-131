@@ -1,0 +1,2 @@
+{"action": "delivered", "gateway_id": "gw-main", "item_id": "ITEM-1", "occurred_at": "2026-02-01T01:00:00Z", "queue_id": "QUEUE-9", "recipient": "Alice@example.com", "report_id": "RPT-1"}
+{"action": "failed", "gateway_id": "gw-main", "item_id": "ITEM-B", "occurred_at": "2026-02-01T01:30:00Z", "queue_id": "QUEUE-B", "recipient": "bob@example.com", "report_id": "RPT-B"}

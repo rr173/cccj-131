@@ -1,0 +1,2 @@
+{"attempt_id": "att-1", "delivery_id": "D-100", "envelope_id": "ENV-A", "gateway_id": "gw-main", "queue_id": "QUEUE-9", "recipient": "Alice@Example.COM", "sent_at": "2026-02-01T00:00:00Z"}
+{"attempt_id": "att-1", "delivery_id": "D-200", "envelope_id": "ENV-B", "gateway_id": "gw-main", "queue_id": "QUEUE-B", "recipient": "bob@example.com", "sent_at": "2026-02-01T00:00:00Z"}

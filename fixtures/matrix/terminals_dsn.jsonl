@@ -1,0 +1,3 @@
+{"action": "delivered", "gateway_id": "g", "item_id": "I1", "occurred_at": "2026-01-01T01:00:00Z", "queue_id": "Q1", "recipient": "u@example.com", "report_id": "R1"}
+{"action": "failed", "gateway_id": "g", "item_id": "I2", "occurred_at": "2026-01-01T01:10:00Z", "queue_id": "Q1", "recipient": "u@example.com", "report_id": "R2"}
+{"action": "delayed", "gateway_id": "g", "item_id": "I3", "occurred_at": "2026-01-01T01:20:00Z", "queue_id": "Q3", "recipient": "u@example.com", "report_id": "R3"}
