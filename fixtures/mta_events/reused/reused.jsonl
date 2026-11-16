@@ -1,0 +1,7 @@
+{"timestamp": "2026-03-11T08:00:00Z", "host": "gw1", "queue_id": "Q-200", "event": "queued", "message_id": "<msg-reused>", "sender": "ops@example.com"}
+{"timestamp": "2026-03-11T08:02:00Z", "host": "gw1", "queue_id": "Q-200", "event": "delivery", "recipient": "carol@example.org", "relay": "mx-carol", "result": "sent"}
+{"timestamp": "2026-03-11T08:05:00Z", "host": "gw1", "queue_id": "Q-200", "event": "removed"}
+{"timestamp": "2026-03-11T09:00:00Z", "host": "gw1", "queue_id": "Q-200", "event": "queued", "message_id": "<msg-reused>", "sender": "ops@example.com"}
+{"timestamp": "2026-03-11T09:03:00Z", "host": "gw1", "queue_id": "Q-200", "event": "delivery", "recipient": "dave@example.org", "relay": "mx-dave", "result": "deferred"}
+{"timestamp": "2026-03-11T09:08:00Z", "host": "gw1", "queue_id": "Q-200", "event": "delivery", "recipient": "dave@example.org", "relay": "mx-dave", "result": "sent"}
+{"timestamp": "2026-03-11T09:10:00Z", "host": "gw1", "queue_id": "Q-200", "event": "removed"}

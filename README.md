@@ -43,6 +43,10 @@ python3 -m receipt_ledger.cli import-resolutions  ledger.sqlite resolutions.json
 python3 -m receipt_ledger.cli convert-archive eml_in/ archive_out/ --gateway gw-main
 python3 -m receipt_ledger.cli import-dsn ledger.sqlite archive_out/dsn.jsonl
 
+# offline MTA log reconstruction: rotated Postfix JSONL -> outbound.jsonl (see §17)
+python3 -m receipt_ledger.cli import-mta-events mta_in/ mta_out/ --gateway gw-main
+python3 -m receipt_ledger.cli import-outbound ledger.sqlite mta_out/outbound.jsonl
+
 # did this batch actually land? read-only per-receipt reconciliation (see §16)
 python3 -m receipt_ledger.cli audit-archive-import ledger.sqlite archive_out/
 
@@ -379,6 +383,7 @@ receipt_ledger/
   reference.py   independent brute-force oracle (no engine imports)
   dsnmime.py     offline .eml -> DSN parsing (pure MIME/DSN, no I/O)
   archive.py     batch directory conversion + atomic publish + manifest
+  mta_events.py  offline MTA JSONL -> outbound attempt reconstruction
   audit.py       read-only reconciliation of an archive batch against a ledger
   case_export.py investigation sub-ledger export (snapshot + closure + verify)
   cli.py         command line interface
@@ -388,9 +393,11 @@ tests/
   test_reference_crosscheck.py    step-by-step engine vs oracle (incl. 40 random runs)
   test_reference_independence.py  guard: oracle must not use engine code
   test_archive.py                 archive-import acceptance (hand-computed expectations)
+  test_mta_events.py              MTA reconstruction acceptance (hand-computed facts)
   test_audit.py                   audit-archive-import acceptance (hand-written facts)
   test_export_case.py             export-case acceptance (hand-written scopes)
   archive_samples.py              real MIME byte samples used by the acceptance tests
+  mta_samples.py                  hand-written MTA event samples used by the tests
   drill.py                        the main tracked drill
   bulk.py                         100k-recipient scenario + query plans
 scripts/
@@ -398,10 +405,13 @@ scripts/
   drill_cli.sh    the drill through the CLI on a real SQLite file (fail-fast)
   drill_export_case.sh  export-case replay, source moved away, sub-ledger queried
   drill_audit_archive.sh archive audit replay with hand-written expectations
+  drill_mta_events.sh    MTA reconstruction replay with hand-written expectations
   make_fixtures.py regenerate fixtures/
   make_archive_fixtures.py regenerate fixtures/archive/**.eml
+  make_mta_fixtures.py     regenerate fixtures/mta_events/**.jsonl
 fixtures/         reusable JSONL materials per scenario
 fixtures/archive/ real .eml acceptance samples per case
+fixtures/mta_events/ hand-written rotated MTA JSONL samples per case
 ```
 
 ---
@@ -717,3 +727,124 @@ content.
   quarantine state and provenance owner, and never uses the audit's own output
   as its expectation.  `scripts/drill_audit_archive.sh` is the re-runnable
   transcript.
+
+---
+
+## 17. Offline MTA log reconstruction (`import-mta-events`)
+
+The mail-operations team collects rotated Postfix gateway logs and books them
+into the delivery ledger afterwards, but the raw events do not look like
+outbound attempts: the recipient and queue number are spread across queue
+entry, SMTP delivery and queue-removal events.  `import-mta-events` bridges
+that gap **offline**.  It never opens a ledger, never sends mail and never
+modifies the input directory; ledger state is entirely determined by a
+subsequent, independent `import-outbound` of the produced file.
+
+```bash
+python3 -m receipt_ledger.cli import-mta-events INPUT_DIR OUTPUT_DIR --gateway gw-main
+python3 -m receipt_ledger.cli import-outbound ledger.sqlite OUTPUT_DIR/outbound.jsonl
+```
+
+`OUTPUT_DIR` must be a **new** path.  All reading, parsing and reconstruction
+happens first; the three products are written inside a controlled temporary
+directory next to the target and published with one atomic rename.  An
+existing target, an undecodable input file or any write failure aborts the
+command and leaves nothing behind.
+
+### Input events (UTF-8 JSONL, one object per line)
+
+Every line carries an RFC 3339 `timestamp` (explicit offset required), a
+`host`, a `queue_id` and an `event`:
+
+| event | extra fields | meaning |
+|---|---|---|
+| `queued` | `message_id`, `sender` | the mail entered this gateway's queue |
+| `delivery` | `recipient`, `relay`, `result` (`sent`/`deferred`) | one SMTP delivery to one recipient |
+| `removed` | — | the queue entry left the queue |
+
+A single file may cover only part of the time window, adjacent rotation files
+may overlap, and neither directory order nor line order is assumed to be
+chronological.  Files are processed in sorted relative-path order and every
+event is ordered by `(timestamp, event kind, canonical content)`, so the same
+input event set always yields the same products.
+
+### Lifecycle identity, and why queue id / Message-ID alone do not work
+
+A lifecycle runs from one `queued` to the matching `removed` on one host.
+
+* A `queue_id` is unique only within one host's one lifecycle and **may be
+  reused after a `removed`**.  Events are therefore grouped by
+  `(host, queue_id)` and split into lifetimes at the queued/removed boundary.
+* The same Message-ID may legitimately recur across different mails (delivery
+  retries reusing it), so it is carried as the outbound `envelope_id`, never
+  used to merge lifecycles.
+* `delivery_id` is content-derived: `dlv-` plus the first 16 hex chars of
+  `sha256(canonical([tag, host, queue_id, queued timestamp, sorted event
+  digests]))`.  It is stable across file/line rearrangement and rotation
+  overlap, and two reused-queue lifetimes get two different ids even when
+  their Message-IDs are identical.
+* `attempt_id` is `att-<n>`, numbered **per recipient inside one delivery** by
+  SMTP timestamp order.  Different recipients each keep their own complete
+  sequence starting at `att-1`.
+
+### Deduplication and ambiguous ordering
+
+* An event's identity is the canonical JSON of its full content.  An
+  identical line repeated at a rotation boundary is one logical event and one
+  business attempt; every physical copy still gets its own manifest entry
+  (relative path, line number, file SHA-256), with later copies marked
+  `duplicate` and pointing at the earliest source coordinate.
+* Retry ordering must never depend on input line numbers.  If two **distinct**
+  delivery events for the same recipient in one lifecycle share one absolute
+  timestamp (compared in integer microseconds, so offset spelling cannot hide
+  a tie), the retry order is undecidable: the whole lifecycle is quarantined
+  (`ambiguous_delivery_order`).  If the tied events also carry contradictory
+  `result` values, the category is `content_conflict`.  Different recipients
+  at one timestamp are parallel deliveries and stay independent.
+
+### Isolation taxonomy (`quarantine.jsonl`)
+
+| category | scope | trigger |
+|---|---|---|
+| `invalid_json` | one line | the line is not decodable JSON |
+| `unknown_event` | one line | `event` is none of queued/delivery/removed |
+| `malformed_event` | one line | missing/unknown fields, bad timestamp, bad `result` … |
+| `invalid_recipient` | one line | recipient fails the §3 address rules |
+| `orphan_event` | one event | delivery/removed with no containing lifecycle |
+| `queued_before_removed` | whole lifecycle | the queue id was re-enqueued before the prior lifetime was removed |
+| `content_conflict` | whole lifecycle | same time + identity, contradictory recipient/result facts |
+| `ambiguous_delivery_order` | whole lifecycle | same recipient, distinct deliveries at one timestamp |
+
+A file that is not valid UTF-8, contains no JSON objects, or a directory with
+no `.jsonl` files is a **batch** failure: nothing is published.  A quarantined
+lifecycle never suppresses its neighbors — independent, decidable lifecycles in
+the same batch still emit their attempts.
+
+### Products
+
+```
+OUTPUT_DIR/
+  outbound.jsonl     directly importable with import-outbound:
+                     gateway_id, delivery_id, attempt_id, recipient,
+                     queue_id, envelope_id (Message-ID), sent_at
+  quarantine.jsonl   line failures, orphan events and excluded lifecycles,
+                     each with source coordinates and a category
+  manifest.jsonl     a run entry (tallies + output digests), one input_file
+                     entry, one event_line entry per physical source line
+                     (emitted / duplicate / lifecycle_event / orphan /
+                     quarantined_line / lifecycle_quarantined, with the
+                     outbound fact it resolves to), and one lifecycle entry
+                     with every event digest and every source coordinate
+```
+
+The manifest deliberately holds the provenance (file SHA-256, relative path
+and line number) so the original logs need not stay online.  Both JSONL
+business files use canonical, sorted-key serialization; byte-identical input
+event sets produce byte-identical business output and identical ids.
+
+Acceptance samples live in `fixtures/mta_events/` (regenerate with
+`python3 scripts/make_mta_fixtures.py`); the hand-computed expectations are in
+`tests/test_mta_events.py`, and `scripts/drill_mta_events.sh` is the
+re-runnable transcript covering the main two-file reverse-order sample, queue
+id reuse with an equal Message-ID, every isolation category, determinism,
+ledger import and failed-publish atomicity.

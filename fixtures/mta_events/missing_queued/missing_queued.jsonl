@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-12T07:00:00Z", "host": "gw2", "queue_id": "Q-NOQ", "event": "delivery", "recipient": "erin@example.net", "relay": "mx-erin", "result": "sent"}
+{"timestamp": "2026-03-12T07:05:00Z", "host": "gw2", "queue_id": "Q-NOQ", "event": "removed"}

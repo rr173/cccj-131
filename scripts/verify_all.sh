@@ -36,6 +36,15 @@ echo "== archive-import reconciliation (audit-archive-import) =="
 $PY -I tests/test_audit.py
 
 echo
+echo "== offline MTA event reconstruction (acceptance) =="
+$PY -I tests/test_mta_events.py
+
+echo
+echo "== replay the MTA event reconstruction drill (hand-written expectations) =="
+bash scripts/drill_mta_events.sh > run/drill_mta_events.txt
+tail -n 22 run/drill_mta_events.txt
+
+echo
 echo "== replay the archive audit drill (hand-written expectations) =="
 bash scripts/drill_audit_archive.sh > run/drill_audit_archive.txt
 tail -n 20 run/drill_audit_archive.txt

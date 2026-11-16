@@ -1,0 +1,7 @@
+{"timestamp": "2026-03-12T11:00:00Z", "host": "gw3", "queue_id": "Q-BL", "event": "queued", "message_id": "<msg-bl>", "sender": "ops@example.com"}
+{"timestamp": "2026-03-12T11:02:00Z", "host": "gw3", "queue_id": "Q-BL", "event": "bounced"}
+{"timestamp": "2026-03-12T11:03:00Z", "host": "gw3", "queue_id": "Q-BL", "event": "delivery", "recipient": "kyle@example.io"}
+{"timestamp": "2026-03-12T11:04:00Z", "host": "gw3", "queue_id": "Q-BL", "event": "delivery", "recipient": "not-an-address", "relay": "mx-k", "result": "sent"}
+{"timestamp": "2026-03-12T11:06:00Z", broken
+{"timestamp": "2026-03-12T11:05:00Z", "host": "gw3", "queue_id": "Q-BL", "event": "delivery", "recipient": "leo@example.io", "relay": "mx-l", "result": "sent"}
+{"timestamp": "2026-03-12T11:09:00Z", "host": "gw3", "queue_id": "Q-BL", "event": "removed"}

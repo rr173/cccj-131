@@ -1,0 +1,4 @@
+{"timestamp": "2026-03-12T10:00:00Z", "host": "gw3", "queue_id": "Q-AM", "event": "queued", "message_id": "<msg-am>", "sender": "ops@example.com"}
+{"timestamp": "2026-03-12T10:04:00Z", "host": "gw3", "queue_id": "Q-AM", "event": "delivery", "recipient": "judy@example.io", "relay": "mx-j-1", "result": "sent"}
+{"timestamp": "2026-03-12T10:04:00Z", "host": "gw3", "queue_id": "Q-AM", "event": "delivery", "recipient": "judy@example.io", "relay": "mx-j-2", "result": "sent"}
+{"timestamp": "2026-03-12T10:09:00Z", "host": "gw3", "queue_id": "Q-AM", "event": "removed"}

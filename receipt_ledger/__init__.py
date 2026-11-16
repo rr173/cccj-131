@@ -26,6 +26,7 @@ from .errors import (
     LedgerError,
 )
 from .fingerprint import fingerprint as candidate_fingerprint
+from .mta_events import MtaEventError, import_mta_events
 from . import reference
 
 __all__ = [
@@ -44,4 +45,6 @@ __all__ = [
     "convert_archive",
     "AuditError",
     "audit_archive_import",
+    "MtaEventError",
+    "import_mta_events",
 ]

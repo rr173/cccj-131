@@ -32,6 +32,7 @@ from .audit import AuditError, audit_archive_import
 from .case_export import export_case
 from .engine import Ledger
 from .errors import ExportError, LedgerError
+from .mta_events import MtaEventError, import_mta_events
 
 
 def _dump(value):
@@ -67,6 +68,19 @@ def build_parser():
                    help="gateway_id stamped on every produced record; the "
                         "operator-declared source of the export, never "
                         "parsed from the messages")
+
+    p = sub.add_parser(
+        "import-mta-events",
+        help="reconstruct a directory of rotated Postfix MTA JSONL event "
+             "logs into per-recipient outbound attempts plus a quarantine "
+             "list and a provenance manifest, written to a NEW directory "
+             "(offline; touches no ledger)")
+    p.add_argument("input_dir", help="directory of UTF-8 JSONL event files")
+    p.add_argument("output_dir", help="new output directory (must not exist)")
+    p.add_argument("--gateway", required=True,
+                   help="gateway_id stamped on every produced attempt; the "
+                        "operator-declared source of the logs, never parsed "
+                        "from the events")
 
     for name, kind in (("import-outbound", "outbound"),
                        ("import-dsn", "dsn"),
@@ -156,6 +170,10 @@ def main(argv=None):
             _dump(convert_archive(args.input_dir, args.output_dir,
                                   gateway_id=args.gateway))
             return 0
+        if args.command == "import-mta-events":
+            _dump(import_mta_events(args.input_dir, args.output_dir,
+                                    gateway_id=args.gateway))
+            return 0
         if args.command == "audit-archive-import":
             report = audit_archive_import(args.db, args.output_dir)
             _dump(report)
@@ -170,6 +188,9 @@ def main(argv=None):
         finally:
             ledger.close()
     except ArchiveError as exc:
+        _dump(exc.to_dict())
+        return 2
+    except MtaEventError as exc:
         _dump(exc.to_dict())
         return 2
     except AuditError as exc:

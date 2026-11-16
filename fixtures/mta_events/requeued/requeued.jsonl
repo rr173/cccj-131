@@ -1,0 +1,5 @@
+{"timestamp": "2026-03-12T08:00:00Z", "host": "gw2", "queue_id": "Q-RQ", "event": "queued", "message_id": "<msg-rq-1>", "sender": "ops@example.com"}
+{"timestamp": "2026-03-12T08:02:00Z", "host": "gw2", "queue_id": "Q-RQ", "event": "delivery", "recipient": "frank@example.net", "relay": "mx-frank", "result": "sent"}
+{"timestamp": "2026-03-12T08:10:00Z", "host": "gw2", "queue_id": "Q-RQ", "event": "queued", "message_id": "<msg-rq-2>", "sender": "ops@example.com"}
+{"timestamp": "2026-03-12T08:12:00Z", "host": "gw2", "queue_id": "Q-RQ", "event": "delivery", "recipient": "grace@example.net", "relay": "mx-grace", "result": "sent"}
+{"timestamp": "2026-03-12T08:15:00Z", "host": "gw2", "queue_id": "Q-RQ", "event": "removed"}
