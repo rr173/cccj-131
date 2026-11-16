@@ -32,6 +32,10 @@ echo "== offline .eml archive import (acceptance) =="
 $PY -I tests/test_archive.py
 
 echo
+echo "== investigation sub-ledger export (export-case) =="
+$PY -I tests/test_export_case.py
+
+echo
 echo "== main tracked drill =="
 $PY -I tests/drill.py > run/drill.txt
 tail -n 25 run/drill.txt
@@ -39,6 +43,11 @@ tail -n 25 run/drill.txt
 echo
 echo "== replay the drill through the CLI on a real SQLite file =="
 bash scripts/drill_cli.sh
+
+echo
+echo "== replay the export-case drill (source moved away) =="
+bash scripts/drill_export_case.sh > run/drill_export_case.txt
+tail -n 12 run/drill_export_case.txt
 
 echo
 echo "== bulk scenario (10k rows here; python3 -I tests/bulk.py runs 100k) =="

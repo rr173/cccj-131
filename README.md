@@ -52,10 +52,14 @@ python3 -m receipt_ledger.cli explain-item ledger.sqlite --report RPT-1 --item I
 python3 -m receipt_ledger.cli fingerprint ledger.sqlite --report RPT-1 --item ITEM-1
 python3 -m receipt_ledger.cli summary     ledger.sqlite
 python3 -m receipt_ledger.cli rebuild     ledger.sqlite
+
+# investigation evidence package: a self-contained sub-ledger (see §15)
+python3 -m receipt_ledger.cli export-case ledger.sqlite selectors.json case_out/
 ```
 
-The shell-replayable drill is `scripts/drill_cli.sh`; it writes its materials
-to `run/drill_cli/` and walks every state transition with the CLI.
+The shell-replayable drills are `scripts/drill_cli.sh` (state transitions) and
+`scripts/drill_export_case.sh` (export an investigation case, move the source
+away, query the sub-ledger).
 
 Python API:
 
@@ -369,6 +373,7 @@ receipt_ledger/
   reference.py   independent brute-force oracle (no engine imports)
   dsnmime.py     offline .eml -> DSN parsing (pure MIME/DSN, no I/O)
   archive.py     batch directory conversion + atomic publish + manifest
+  case_export.py investigation sub-ledger export (snapshot + closure + verify)
   cli.py         command line interface
 tests/
   test_inputs.py                  format/identity/atomicity
@@ -376,12 +381,14 @@ tests/
   test_reference_crosscheck.py    step-by-step engine vs oracle (incl. 40 random runs)
   test_reference_independence.py  guard: oracle must not use engine code
   test_archive.py                 archive-import acceptance (hand-computed expectations)
+  test_export_case.py             export-case acceptance (hand-written scopes)
   archive_samples.py              real MIME byte samples used by the acceptance tests
   drill.py                        the main tracked drill
   bulk.py                         100k-recipient scenario + query plans
 scripts/
   verify_all.sh   run everything
   drill_cli.sh    the drill through the CLI on a real SQLite file (fail-fast)
+  drill_export_case.sh  export-case replay, source moved away, sub-ledger queried
   make_fixtures.py regenerate fixtures/
   make_archive_fixtures.py regenerate fixtures/archive/**.eml
 fixtures/         reusable JSONL materials per scenario
@@ -494,3 +501,104 @@ detail — never the body or other recipients' addresses.
 Acceptance samples with real MIME bytes live in `fixtures/archive/`
 (regenerate with `python3 scripts/make_archive_fixtures.py`); the
 hand-computed expectations are in `tests/test_archive.py`.
+
+---
+
+## 15. Investigation sub-ledger export (`export-case`)
+
+```bash
+python3 -m receipt_ledger.cli export-case SOURCE_DB SELECTORS_JSON OUTPUT_DIR
+```
+
+A colleague investigating one incident may need the evidence but must not
+receive the whole production ledger.  `export-case` takes explicitly named
+deliveries and/or receipt items and writes a **new directory** containing:
+
+```
+OUTPUT_DIR/
+  ledger.sqlite    a standalone ledger (same schema; query/rebuild tools work)
+  selection.json   what was carried, why, and from which import files
+```
+
+`OUTPUT_DIR` must not exist.  An invalid selector, a selector absent from the
+source, an existing target or any write failure aborts the whole export and
+publishes nothing.
+
+### Selector document
+
+```json
+{"deliveries": [{"gateway_id": "gw-main", "delivery_id": "D-100",
+                 "recipient": "Alice@example.com"}],
+ "items":      [{"gateway_id": "gw-main", "report_id": "RPT-1",
+                 "item_id": "ITEM-1"}]}
+```
+
+At least one delivery or item must be named.  Duplicates collapse; addresses
+use the normal §3 convention (ASCII domain folded, local part byte-exact).
+Unknown fields, empty values and unsupported addresses are rejected -- the
+export never silently skips a selector.
+
+### What travels, and why (`selection.json`)
+
+The closure is computed against a **single consistent read snapshot** of the
+whole source (SQLite's online backup inside one read transaction), never
+against the partially built sub-ledger.  Concurrent imports may keep
+committing; the snapshot cannot see them, so a mixed "old candidates + new
+facts" view is impossible.  The source is opened read-only and never modified.
+
+Expansion iterates to a fixed point over these rules, and nothing else:
+
+* a selected delivery is `(gateway, delivery, recipient)` plus **all** its
+  retry attempts;
+* a receipt's correction group is carried in full, in both directions:
+  ancestors, every present branch and descendants.  An **absent** target is
+  kept as a logical identity only (never fabricated), so corrections sharing
+  the same missing target stay one group;
+* every group containing an original DSN contributes its **current candidate
+  set**, recomputed from the complete facts, whatever its mark -- ambiguous,
+  unmatched, withdrawn or conflicted.  A group with no original DSN
+  contributes no candidates;
+* a carried attempt brings its delivery's retries, which can pull in further
+  groups, so expansion is not one level deep;
+* a carried group keeps **all** its human decisions, live and stale, together
+  with the candidate set and chosen attempt each saved.  Historical
+  competitors are never deleted and fingerprints are never re-signed.
+
+`selection.json` records the normalized selection, every carried business
+identity with the reason it was added, the fact counts actually carried, the
+receipt groups with their state/candidates/fingerprint, the absent logical
+targets, and the referenced `import_file` rows.  `import_file.sha256`,
+`source_name` and `source_line_count` still describe the **original** file
+history; `carried_rows`/`carried_total`/`partial` say how much of it is
+actually present here, so a partial cut is never passed off as the whole file.
+Facts from the same import file that are outside the closure are **not**
+carried.
+
+### Guarantees
+
+* Facts keep their business values; row ids are preserved so every internal
+  reference (`line_key`, `requested_key`, `candidate_fp`, FK columns) points
+  at the same business fact -- a decision can never drift onto another
+  receipt.  Row numbers and output order carry no semantic meaning.
+* Derivations are **regenerated** by the engine's own `rebuild` in the
+  sub-ledger; old materialized state is never copied.  Before publishing, the
+  export rebuilds the sub-ledger and compares it with a freshly re-derived
+  snapshot: per-attempt and per-delivery status, each group's candidate set,
+  fingerprint, mark, effective end, conflict/exclusion reason and decisions,
+  all compared by business identity.  A mismatch aborts the export.
+* No out-of-scope originals, attempts, decisions, or unreferenced
+  gateways/import-file rows exist in the sub-ledger (`foreign_key_check` and
+  `integrity_check` are also run).
+* After the export the source may be moved away; `status`, `attempt-status`,
+  `explain-item`, `pending`, `conflicts`, `summary` and `rebuild` all work on
+  the sub-ledger.  `summary` counts only the carried range (it is not expected
+  to equal the source totals).
+* Importing the original files into a sub-ledger is out of scope: this is a
+  frozen package for investigation and independent recomputation.
+
+`tests/test_export_case.py` hand-writes the expected business identities (no
+exporter-computed set is used as its own expectation) and covers the main
+drill, a withdrawn group, a stale decision's non-current candidate, two
+gateways with equal numbers, selector/target/write failures, and a real
+two-process concurrent-import run.  `scripts/drill_export_case.sh` is the
+re-runnable transcript.

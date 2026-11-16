@@ -48,3 +48,18 @@ class DecisionError(LedgerError):
 
 class CorrectionError(LedgerError):
     code = "correction_error"
+
+
+class ExportError(LedgerError):
+    """A case-export failure; nothing is published when this is raised.
+
+    ``code`` is supplied per failure (invalid selection, missing source fact,
+    existing target, write failure, verification mismatch) so callers can tell
+    "the selector was wrong" apart from "the destination was unavailable".
+    """
+
+    code = "export_error"
+
+    def __init__(self, code, message, details=None):
+        super().__init__(message, details)
+        self.code = code

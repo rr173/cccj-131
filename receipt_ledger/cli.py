@@ -27,8 +27,9 @@ import json
 import sys
 
 from .archive import ArchiveError, convert_archive
+from .case_export import export_case
 from .engine import Ledger
-from .errors import LedgerError
+from .errors import ExportError, LedgerError
 
 
 def _dump(value):
@@ -117,6 +118,16 @@ def build_parser():
     p.add_argument("--report", required=True)
     p.add_argument("--item", required=True)
     p.add_argument("--gateway", default="default")
+
+    p = sub.add_parser(
+        "export-case",
+        help="export the minimal related evidence for named deliveries / "
+             "items into a standalone sub-ledger (a new directory)")
+    p.add_argument("source_db")
+    p.add_argument("selectors_json",
+                   help="path to a JSON document with 'deliveries' and/or "
+                        "'items' selector arrays")
+    p.add_argument("output_dir", help="new output directory (must not exist)")
     return parser
 
 
@@ -133,12 +144,19 @@ def main(argv=None):
             _dump(convert_archive(args.input_dir, args.output_dir,
                                   gateway_id=args.gateway))
             return 0
+        if args.command == "export-case":
+            _dump(export_case(args.source_db, _read(args.selectors_json),
+                              args.output_dir))
+            return 0
         ledger = _open(args.db)
         try:
             return _dispatch(ledger, args)
         finally:
             ledger.close()
     except ArchiveError as exc:
+        _dump(exc.to_dict())
+        return 2
+    except ExportError as exc:
         _dump(exc.to_dict())
         return 2
     except LedgerError as exc:
