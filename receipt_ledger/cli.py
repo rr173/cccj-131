@@ -15,6 +15,7 @@ with shell commands::
     python -m receipt_ledger.cli explain-item ledger.sqlite --report R1 --item I1
     python -m receipt_ledger.cli summary ledger.sqlite
     python -m receipt_ledger.cli rebuild ledger.sqlite
+    python -m receipt_ledger.cli audit-archive-import ledger.sqlite archive_out/
 
 Every command prints JSON on stdout.  Errors print a JSON object with a
 ``code`` and exit non-zero; a failed import writes nothing.
@@ -27,6 +28,7 @@ import json
 import sys
 
 from .archive import ArchiveError, convert_archive
+from .audit import AuditError, audit_archive_import
 from .case_export import export_case
 from .engine import Ledger
 from .errors import ExportError, LedgerError
@@ -128,6 +130,16 @@ def build_parser():
                    help="path to a JSON document with 'deliveries' and/or "
                         "'items' selector arrays")
     p.add_argument("output_dir", help="new output directory (must not exist)")
+
+    p = sub.add_parser(
+        "audit-archive-import",
+        help="read-only reconciliation of one convert-archive output "
+             "directory against the ledger: per-receipt provenance, "
+             "dedup, missing/conflict, quarantines and failed messages")
+    p.add_argument("db", metavar="LEDGER")
+    p.add_argument("output_dir", metavar="ARCHIVE_OUTPUT_DIR",
+                   help="an existing convert-archive output directory "
+                        "(dsn.jsonl, quarantine.jsonl, manifest.jsonl)")
     return parser
 
 
@@ -144,6 +156,10 @@ def main(argv=None):
             _dump(convert_archive(args.input_dir, args.output_dir,
                                   gateway_id=args.gateway))
             return 0
+        if args.command == "audit-archive-import":
+            report = audit_archive_import(args.db, args.output_dir)
+            _dump(report)
+            return report["exit_code"]
         if args.command == "export-case":
             _dump(export_case(args.source_db, _read(args.selectors_json),
                               args.output_dir))
@@ -154,6 +170,9 @@ def main(argv=None):
         finally:
             ledger.close()
     except ArchiveError as exc:
+        _dump(exc.to_dict())
+        return 2
+    except AuditError as exc:
         _dump(exc.to_dict())
         return 2
     except ExportError as exc:

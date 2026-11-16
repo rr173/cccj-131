@@ -43,6 +43,9 @@ python3 -m receipt_ledger.cli import-resolutions  ledger.sqlite resolutions.json
 python3 -m receipt_ledger.cli convert-archive eml_in/ archive_out/ --gateway gw-main
 python3 -m receipt_ledger.cli import-dsn ledger.sqlite archive_out/dsn.jsonl
 
+# did this batch actually land? read-only per-receipt reconciliation (see §16)
+python3 -m receipt_ledger.cli audit-archive-import ledger.sqlite archive_out/
+
 python3 -m receipt_ledger.cli status      ledger.sqlite --delivery D-100 --recipient Alice@example.com
 python3 -m receipt_ledger.cli attempt-status ledger.sqlite --delivery D-100 --attempt att-2 --recipient Alice@example.com
 python3 -m receipt_ledger.cli timeline    ledger.sqlite --recipient Alice@example.com
@@ -52,6 +55,9 @@ python3 -m receipt_ledger.cli explain-item ledger.sqlite --report RPT-1 --item I
 python3 -m receipt_ledger.cli fingerprint ledger.sqlite --report RPT-1 --item ITEM-1
 python3 -m receipt_ledger.cli summary     ledger.sqlite
 python3 -m receipt_ledger.cli rebuild     ledger.sqlite
+
+# read-only archive batch reconciliation (see §16)
+python3 -m receipt_ledger.cli audit-archive-import ledger.sqlite archive_out/
 
 # investigation evidence package: a self-contained sub-ledger (see §15)
 python3 -m receipt_ledger.cli export-case ledger.sqlite selectors.json case_out/
@@ -373,6 +379,7 @@ receipt_ledger/
   reference.py   independent brute-force oracle (no engine imports)
   dsnmime.py     offline .eml -> DSN parsing (pure MIME/DSN, no I/O)
   archive.py     batch directory conversion + atomic publish + manifest
+  audit.py       read-only reconciliation of an archive batch against a ledger
   case_export.py investigation sub-ledger export (snapshot + closure + verify)
   cli.py         command line interface
 tests/
@@ -381,6 +388,7 @@ tests/
   test_reference_crosscheck.py    step-by-step engine vs oracle (incl. 40 random runs)
   test_reference_independence.py  guard: oracle must not use engine code
   test_archive.py                 archive-import acceptance (hand-computed expectations)
+  test_audit.py                   audit-archive-import acceptance (hand-written facts)
   test_export_case.py             export-case acceptance (hand-written scopes)
   archive_samples.py              real MIME byte samples used by the acceptance tests
   drill.py                        the main tracked drill
@@ -389,6 +397,7 @@ scripts/
   verify_all.sh   run everything
   drill_cli.sh    the drill through the CLI on a real SQLite file (fail-fast)
   drill_export_case.sh  export-case replay, source moved away, sub-ledger queried
+  drill_audit_archive.sh archive audit replay with hand-written expectations
   make_fixtures.py regenerate fixtures/
   make_archive_fixtures.py regenerate fixtures/archive/**.eml
 fixtures/         reusable JSONL materials per scenario
@@ -602,3 +611,109 @@ drill, a withdrawn group, a stale decision's non-current candidate, two
 gateways with equal numbers, selector/target/write failures, and a real
 two-process concurrent-import run.  `scripts/drill_export_case.sh` is the
 re-runnable transcript.
+
+---
+
+## 16. Archive batch reconciliation (`audit-archive-import`)
+
+An import command's exit status says the file was accepted; it does not say
+that *this batch's* receipts are in the ledger, or where each fact came from.
+
+```bash
+python3 -m receipt_ledger.cli audit-archive-import LEDGER ARCHIVE_OUTPUT_DIR
+```
+
+`ARCHIVE_OUTPUT_DIR` is an existing `convert-archive` output directory
+(`dsn.jsonl`, `quarantine.jsonl`, `manifest.jsonl`).  The command is read-only:
+it opens the ledger read-only, copies one instant of it with SQLite's online
+backup, and writes nothing to either the archive or the ledger.  It never
+re-parses mail, never recomputes delivery state and never needs the original
+`.eml` files — the manifest supplies provenance coordinates and digests, not
+proof that the raw bytes can be re-read.
+
+### First: the package must be trustworthy
+
+The whole directory is validated before the ledger is consulted:
+
+* exactly one `run` entry, first in `manifest.jsonl`, `format_version` 1, its
+  `dsn.jsonl` / `quarantine.jsonl` SHA-256 and line counts matching the bytes
+  on disk, and its tallies matching the manifest;
+* every manifest `record` index is unique, contiguous and points at the same
+  line of `dsn.jsonl`; the line's gateway/report/item identity must equal the
+  message's content-derived `report_id` (`"rpt-" + file_sha256`), its block's
+  `item_id` and the record entry's own coordinates;
+* the record's `file_sha256` and `parse_digest` must agree with its message,
+  the message must be `parsed`, and its block outcome must be `record`; each
+  message's `parse_digest` is **recomputed** from the manifest blocks plus the
+  `dsn.jsonl` records and compared;
+* every quarantine entry maps back to one block of one parsed message (or to
+  one report-level failed message), with matching category/detail; failed
+  messages never produce successful records and no quarantine is missing.
+
+Any misalignment, duplicate index, missing line or digest mismatch makes the
+package **invalid**: no per-record ledger verdict is produced and the report
+can never say `verified`.
+
+### Then: every valid receipt against the fact layer
+
+For each emitted receipt the audit looks up the exact
+`(gateway, report, item)` identity in `dsn_line` and compares the complete
+canonical content (recipient, action, occurrence time, queue/envelope,
+canonical hash).  Each result carries its source coordinates (relative file,
+file SHA-256, message index, block index, parse digest), the business identity,
+the expected record and the stored fact with its `import_file` row:
+
+| result | meaning |
+|---|---|
+| `imported_by_this_batch` | identical fact exists and its `import_file` row is this batch's `dsn.jsonl` digest |
+| `deduplicated_existing` | identical fact exists but was provided earlier by a different file; the ledger kept its original provenance — correct, not missing |
+| `present_but_file_not_imported` | identical fact exists, but this batch's file digest is not registered |
+| `missing` | no fact for this identity |
+| `conflict` | identity exists with different content, or is used by a correction — exactly what the ledger refuses to import |
+
+Facts attributed to this batch's `import_file` row that are not among the
+batch's records are reported as `unexpected_facts` (identity and content), so a
+ledger with the same valid-line count but a different fact set fails instead of
+passing on counts alone.  File names are never used to identify a batch: only
+the digest is, and a same-named file with another digest is reported as
+`same_name_other_digest`, never merged.
+
+Quarantine entries are listed with their provenance and
+`expected_in_ledger: false`.  They are not receipts that should have been
+imported and are never counted as missing; if an unrelated ledger row happens
+to use the same identity, that coincidence is recorded (`ledger_identity_present`)
+without ever describing the quarantined block as imported.  Report-level
+failed messages are reported separately and make the batch `incomplete` (the
+batch is not fully accounted for), while blocks and messages are tallied in
+`summary`.
+
+### Outcome and exit status
+
+| outcome | exit | when |
+|---|---|---|
+| `verified` | 0 | every valid receipt is present with identical content, provided by this batch or already deduplicated, no unexpected facts, no conflicts, no report-level failure |
+| `incomplete` | 1 | missing receipts, an unregistered batch file, or a whole message failed |
+| `invalid_package` | 2 | the archive directory is structurally invalid |
+| `concurrent_change` | 3 | a commit landed while the audit was reading; verdicts describe the snapshot, and the change is reported explicitly |
+| `conflict` | 4 | identity/content conflict, a correction owns the identity, or unexpected facts attributed to this batch |
+
+Missing paths, unreadable files and foreign databases raise an error object
+with a non-zero exit.  Physical row numbers are never used for ordering:
+records follow the package's own order and all lists are sorted by business
+content.
+
+### Guarantees
+
+* The audit does not modify the ledger: facts, import provenance and derived
+  state are identical before and after (checked in `tests/test_audit.py`).
+* The ledger is read through one snapshot.  Imports may keep committing; a
+  commit during the audit is detected with `PRAGMA data_version` and reported
+  as `concurrent_change`, never mixed into per-record verdicts.
+* "Fact is recorded" and "what the receipt currently means" are separate
+  questions: a later correction or withdrawal does not turn a successfully
+  imported receipt into an import failure, and the audit never restates
+  delivery state.
+* `tests/test_audit.py` hand-writes every expected identity, block number,
+  quarantine state and provenance owner, and never uses the audit's own output
+  as its expectation.  `scripts/drill_audit_archive.sh` is the re-runnable
+  transcript.

@@ -32,6 +32,15 @@ echo "== offline .eml archive import (acceptance) =="
 $PY -I tests/test_archive.py
 
 echo
+echo "== archive-import reconciliation (audit-archive-import) =="
+$PY -I tests/test_audit.py
+
+echo
+echo "== replay the archive audit drill (hand-written expectations) =="
+bash scripts/drill_audit_archive.sh > run/drill_audit_archive.txt
+tail -n 20 run/drill_audit_archive.txt
+
+echo
 echo "== investigation sub-ledger export (export-case) =="
 $PY -I tests/test_export_case.py
 
